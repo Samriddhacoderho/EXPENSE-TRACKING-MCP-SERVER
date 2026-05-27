@@ -5,16 +5,13 @@ from fastmcp import FastMCP
 
 mcp = FastMCP("ExpenseTrackerServer")
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-DATA_DIR = os.path.join(BASE_DIR, "data")
+DATA_DIR = "/tmp/data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 DB_NAME = os.path.join(DATA_DIR, "expenses.db")
 
 
 def init_db():
-    """Initialize database and create table if not exists."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -36,10 +33,7 @@ init_db()
 
 
 def get_db_connection():
-    """Return a write-enabled SQLite connection."""
-    conn = sqlite3.connect(DB_NAME, timeout=10.0)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    return conn
+    return sqlite3.connect(DB_NAME, timeout=10.0)
 
 
 @mcp.tool
