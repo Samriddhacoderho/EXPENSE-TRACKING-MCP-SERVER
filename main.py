@@ -174,4 +174,6 @@ def expenses_by_category(category: str) -> list:
 
 
 if __name__ == "__main__":
-    mcp.run()
+    # Run with HTTP transport
+    mcp.run(transport="http", host="127.0.0.1", port=9000)
+
