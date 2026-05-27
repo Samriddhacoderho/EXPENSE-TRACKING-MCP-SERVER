@@ -7,11 +7,13 @@ mcp = FastMCP("ExpenseTrackerServer")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_NAME = os.path.join(BASE_DIR, "expenses.db")
+# Convert path to a proper URI format for advanced SQLite flags
+DB_URI = f"file:{DB_NAME}?mode=rw"
 
 
-#db initialization
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    # For initialization, we create the file if it doesn't exist (rwc = read/write/create)
+    conn = sqlite3.connect(f"file:{DB_NAME}?mode=rwc", uri=True)
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -27,51 +29,59 @@ def init_db():
     conn.commit()
     conn.close()
 
+
+# Initialize the database file
 init_db()
 
 
+def get_db_connection():
+    """Helper to return a connection strictly locked in Read-Write mode with a timeout."""
+    # uri=True allows us to use the 'mode=rw' flag to force write capability
+    conn = sqlite3.connect(DB_URI, uri=True, timeout=10.0)
 
-#add expense tool
+    # Enable WAL mode so HTTP server reads don't block tool writes
+    conn.execute("PRAGMA journal_mode=WAL;")
+    return conn
+
+
+# add expense tool
 @mcp.tool
 def add_expense(
-    title: str,
-    amount: float,
-    category: str = "General",
-    created_at: str = None
+    title: str, amount: float, category: str = "General", created_at: str = None
 ) -> str:
     """
     Add a new expense.
-    
+
     created_at format:
     YYYY-MM-DD HH:MM:SS
     """
-
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
-    # If no date provided, use current timestamp
     if created_at is None:
         created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    cursor.execute("""
+    cursor.execute(
+        """
     INSERT INTO expenses (title, amount, category, created_at)
     VALUES (?, ?, ?, ?)
-    """, (title, amount, category, created_at))
+    """,
+        (title, amount, category, created_at),
+    )
 
     conn.commit()
     conn.close()
 
-    return f"Expense added: {title} - ${amount} ({category}) on {created_at}"
+    return f"Expense added: {title} - {amount} ({category}) on {created_at}"
 
 
-#list expenses tool
+# list expenses tool
 @mcp.tool
 def list_expenses() -> list:
     """
     List all expenses.
     """
-
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -84,15 +94,16 @@ def list_expenses() -> list:
     conn.close()
 
     expenses = []
-
     for row in rows:
-        expenses.append({
-            "id": row[0],
-            "title": row[1],
-            "amount": row[2],
-            "category": row[3],
-            "created_at": row[4]
-        })
+        expenses.append(
+            {
+                "id": row[0],
+                "title": row[1],
+                "amount": row[2],
+                "category": row[3],
+                "created_at": row[4],
+            }
+        )
 
     return expenses
 
@@ -102,8 +113,7 @@ def delete_expense(expense_id: int) -> str:
     """
     Delete an expense by ID.
     """
-
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute("SELECT * FROM expenses WHERE id = ?", (expense_id,))
@@ -126,14 +136,11 @@ def total_expenses() -> float:
     """
     Get total expense amount.
     """
-
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute("SELECT SUM(amount) FROM expenses")
-
     total = cursor.fetchone()[0]
-
     conn.close()
 
     return total if total else 0.0
@@ -144,33 +151,29 @@ def expenses_by_category(category: str) -> list:
     """
     Get expenses filtered by category.
     """
-
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.execute(
+        """
     SELECT id, title, amount, created_at
     FROM expenses
     WHERE category = ?
     ORDER BY created_at DESC
-    """, (category,))
+    """,
+        (category,),
+    )
 
     rows = cursor.fetchall()
-
     conn.close()
 
     results = []
-
     for row in rows:
-        results.append({
-            "id": row[0],
-            "title": row[1],
-            "amount": row[2],
-            "created_at": row[3]
-        })
+        results.append(
+            {"id": row[0], "title": row[1], "amount": row[2], "created_at": row[3]}
+        )
 
     return results
-
 
 
 if __name__ == "__main__":
