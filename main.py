@@ -6,14 +6,16 @@ from fastmcp import FastMCP
 mcp = FastMCP("ExpenseTrackerServer")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_NAME = os.path.join(BASE_DIR, "expenses.db")
-# Convert path to a proper URI format for advanced SQLite flags
-DB_URI = f"file:{DB_NAME}?mode=rw"
+
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+DB_NAME = os.path.join(DATA_DIR, "expenses.db")
 
 
 def init_db():
-    # For initialization, we create the file if it doesn't exist (rwc = read/write/create)
-    conn = sqlite3.connect(f"file:{DB_NAME}?mode=rwc", uri=True)
+    """Initialize database and create table if not exists."""
+    conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -30,21 +32,16 @@ def init_db():
     conn.close()
 
 
-# Initialize the database file
 init_db()
 
 
 def get_db_connection():
-    """Helper to return a connection strictly locked in Read-Write mode with a timeout."""
-    # uri=True allows us to use the 'mode=rw' flag to force write capability
-    conn = sqlite3.connect(DB_URI, uri=True, timeout=10.0)
-
-    # Enable WAL mode so HTTP server reads don't block tool writes
+    """Return a write-enabled SQLite connection."""
+    conn = sqlite3.connect(DB_NAME, timeout=10.0)
     conn.execute("PRAGMA journal_mode=WAL;")
     return conn
 
 
-# add expense tool
 @mcp.tool
 def add_expense(
     title: str, amount: float, category: str = "General", created_at: str = None
@@ -63,60 +60,52 @@ def add_expense(
 
     cursor.execute(
         """
-    INSERT INTO expenses (title, amount, category, created_at)
-    VALUES (?, ?, ?, ?)
-    """,
+        INSERT INTO expenses (title, amount, category, created_at)
+        VALUES (?, ?, ?, ?)
+        """,
         (title, amount, category, created_at),
     )
 
     conn.commit()
     conn.close()
 
-    return f"Expense added: {title} - {amount} ({category}) on {created_at}"
+    return f"✅ Expense added: {title} - {amount} ({category}) on {created_at}"
 
 
-# list expenses tool
 @mcp.tool
 def list_expenses() -> list:
-    """
-    List all expenses.
-    """
+    """List all expenses."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
-    SELECT id, title, amount, category, created_at
-    FROM expenses
-    ORDER BY created_at DESC
+        SELECT id, title, amount, category, created_at
+        FROM expenses
+        ORDER BY created_at DESC
     """)
 
     rows = cursor.fetchall()
     conn.close()
 
-    expenses = []
-    for row in rows:
-        expenses.append(
-            {
-                "id": row[0],
-                "title": row[1],
-                "amount": row[2],
-                "category": row[3],
-                "created_at": row[4],
-            }
-        )
-
-    return expenses
+    return [
+        {
+            "id": row[0],
+            "title": row[1],
+            "amount": row[2],
+            "category": row[3],
+            "created_at": row[4],
+        }
+        for row in rows
+    ]
 
 
 @mcp.tool
 def delete_expense(expense_id: int) -> str:
-    """
-    Delete an expense by ID.
-    """
+    """Delete an expense by ID."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM expenses WHERE id = ?", (expense_id,))
+    cursor.execute("SELECT id FROM expenses WHERE id = ?", (expense_id,))
     expense = cursor.fetchone()
 
     if not expense:
@@ -124,7 +113,6 @@ def delete_expense(expense_id: int) -> str:
         return f"Expense with ID {expense_id} not found."
 
     cursor.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
-
     conn.commit()
     conn.close()
 
@@ -133,9 +121,7 @@ def delete_expense(expense_id: int) -> str:
 
 @mcp.tool
 def total_expenses() -> float:
-    """
-    Get total expense amount.
-    """
+    """Get total expense amount."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -148,35 +134,34 @@ def total_expenses() -> float:
 
 @mcp.tool
 def expenses_by_category(category: str) -> list:
-    """
-    Get expenses filtered by category.
-    """
+    """Get expenses filtered by category."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute(
         """
-    SELECT id, title, amount, created_at
-    FROM expenses
-    WHERE category = ?
-    ORDER BY created_at DESC
-    """,
+        SELECT id, title, amount, created_at
+        FROM expenses
+        WHERE category = ?
+        ORDER BY created_at DESC
+        """,
         (category,),
     )
 
     rows = cursor.fetchall()
     conn.close()
 
-    results = []
-    for row in rows:
-        results.append(
-            {"id": row[0], "title": row[1], "amount": row[2], "created_at": row[3]}
-        )
-
-    return results
+    return [
+        {
+            "id": row[0],
+            "title": row[1],
+            "amount": row[2],
+            "created_at": row[3],
+        }
+        for row in rows
+    ]
 
 
 if __name__ == "__main__":
-    # Run with HTTP transport
-    mcp.run(transport="http", host="127.0.0.1", port=9000)
-
+# Run with HTTP transport
+    mcp.run(transport="http", host="0.0.0.0", port=9000)
